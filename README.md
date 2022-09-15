@@ -35,7 +35,6 @@
 @RestController()
 @RequestMapping("/user")
 public class UserController {
-
     @GetMapping("/{id}")
     public String getUser(@PathVariable("id") String id) {
         return id;
@@ -48,15 +47,15 @@ public class UserController {
 ##### 在pom.xml添加以下依赖
 ```
 <dependency>
-			<groupId>org.mybatis.spring.boot</groupId>
-			<artifactId>mybatis-spring-boot-starter</artifactId>
-			<version>2.2.2</version>
-		</dependency>
+    <groupId>org.mybatis.spring.boot</groupId>
+    <artifactId>mybatis-spring-boot-starter</artifactId>
+    <version>2.2.2</version>
+</dependency>
 
-		<dependency>
-			<groupId>mysql</groupId>
-			<artifactId>mysql-connector-java</artifactId>
-		</dependency>
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+</dependency>
 ```
 ##### 修改application.yaml
 ```
@@ -88,12 +87,8 @@ mybatis:
     </insert>
 </mapper>
 ```
-分别创建一下类：
+分别创建以下类：
 ```
-package com.huashang.coursecompetition.dao;
-
-import com.huashang.coursecompetition.domain.po.UserPo;
-
 /**
  * @author linjianhua
  * @date 2022/9/15
@@ -103,9 +98,6 @@ public interface UserDao {
     int save(UserPo userPo);
 
 }
-package com.huashang.coursecompetition.servier;
-
-import com.huashang.coursecompetition.domain.dto.UserDto;
 
 /**
  * @author linjianhua
@@ -119,20 +111,8 @@ public interface UserService {
      * @return
      */
     int save(UserDto userDto);
-
 }
-package com.huashang.coursecompetition.servier.impl;
 
-import com.huashang.coursecompetition.dao.UserDao;
-import com.huashang.coursecompetition.domain.dto.UserDto;
-import com.huashang.coursecompetition.domain.po.UserPo;
-import com.huashang.coursecompetition.servier.UserService;
-import org.springframework.stereotype.Service;
-
-/**
- * @author linjianhua
- * @date 2022/9/15
- */
 @Service
 public class UserServiceImpl implements UserService {
 
@@ -157,5 +137,202 @@ public class UserServiceImpl implements UserService {
 
 }
 
+@RestController()
+@RequestMapping("/user")
+public class UserController {
+
+    private final UserService userService;
+
+    public UserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @PostMapping
+    public ApiResult<?> createUser(@RequestBody UserDto userDto) {
+        userService.save(userDto);
+        return ApiResult.success();
+    }
+
+    @GetMapping("/{id}")
+    public ApiResult<?> getUser(@PathVariable("id") String id) {
+        return ApiResult.success(id);
+    }
+
+}
+
 ```
-注：省略实体类，两个都是
+注：省略实体类
+
+通过Postman或者idea tools httpclient分别调用两个接口：
+```
+Post: http://127.0.0.1:8080/user
+{
+    "username": "lin",
+    "password": "123456"
+}
+
+Get: http://127.0.0.1:8080/user/12
+```
+
+#### 集成spring security
+##### 添加maven依赖
+
+```
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-security</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-test</artifactId>
+    <scope>test</scope>
+</dependency>
+<dependency>
+    <groupId>org.springframework.security</groupId>
+    <artifactId>spring-security-test</artifactId>
+    <scope>test</scope>
+</dependency>
+```
+
+##### 继承 WebSecurityConfigurerAdapter 自定义 Spring Security 配置
+
+```
+/**
+ * @author linjianhua
+ * @date 2022/9/15
+ */
+@Configuration
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+
+    private final CustomAccessDeniedHandler customAccessDeniedHandler;
+
+    private final UserDetailsService userDetailsService;
+
+    public SecurityConfig(CustomAccessDeniedHandler customAccessDeniedHandler, UserDetailsService userDetailsService) {
+        this.customAccessDeniedHandler = customAccessDeniedHandler;
+        this.userDetailsService = userDetailsService;
+    }
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        auth.userDetailsService(userDetailsService)
+                .passwordEncoder(passwordEncoder());
+    }
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.headers().frameOptions().disable();
+        http.authorizeRequests()
+                // 不拦截登陆请求
+                .antMatchers("/login")
+                .permitAll()
+                // user接口必须有USER角色
+                .antMatchers("/user", "/user/**")
+                .hasAuthority("USER")
+                // 其他接口通过rbacPermission.hasPermission判定是否有权限
+                .anyRequest()
+                .access("@rbacPermission.hasPermission(request, authentication)")
+                .and()
+                // 表单登陆
+                .formLogin()
+                .loginProcessingUrl("/login")
+                .usernameParameter("username")
+                .passwordParameter("password")
+                // 登陆成功跳转页面
+                .defaultSuccessUrl("/index.html")
+                .and()
+                // 异常处理
+                .exceptionHandling()
+                .accessDeniedHandler(customAccessDeniedHandler)
+                .and()
+                .logout()
+                // 登出
+                .logoutUrl("/login?logout");
+    }
+    /**
+    * 密码加密算法
+    */
+    public BCryptPasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+}
+```
+
+##### 自定义实现 UserDetails 接口，扩展用户属性
+```
+public class UserEntity implements UserDetails {
+
+    private String username;
+    private String password;
+
+    private String role;
+    private List<SimpleGrantedAuthority> authorities = new ArrayList<>();
+
+    public UserEntity(String username, String password, String role) {
+        this.username = username;
+        this.password = password;
+        this.authorities.add(new SimpleGrantedAuthority(role));
+        this.role = role;
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return authorities;
+    }
+
+    @Override
+    public String getPassword() {
+        return password;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
+    }
+
+    @Override
+    public String getUsername() {
+        return username;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return true;
+    }
+}
+```
+
+#### 自定义实现 UserDetailsService 接口
+```
+@Component
+public class UserDetailServiceImpl implements UserDetailsService {
+    /**
+    * 根据用户名称查询用户信息(密码、权限、角色)
+    */
+    @Override
+    public UserEntity loadUserByUsername(String username) throws UsernameNotFoundException {
+        if ("lin".equals(username)) {
+            return new UserEntity(username, new BCryptPasswordEncoder().encode("123456"), "USER");
+        }
+        return new UserEntity(username, new BCryptPasswordEncoder().encode("12345678"), "ADMIN");
+    }
+}
+```
