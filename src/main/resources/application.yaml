@@ -1,0 +1,12 @@
+spring:
+  # 数据库配置
+  datasource:
+    username: root
+    password: 123456
+    url: jdbc:mysql://127.0.0.1:3306/cc_test?characterEncoding=UTF-8&autoReconnect=true&useSSL=false&allowMultiQueries=true
+    driver-class-name: com.mysql.cj.jdbc.Driver
+mybatis:
+  mapper-locations: classpath:mapper/*.xml
+  type-aliases-package: com.huashang.coursecompetition.domain.po
+  configuration:
+    map-underscore-to-camel-case: true
